@@ -1,0 +1,143 @@
+---
+title: "DAE 3"
+author: "Lindsey Carothers, Jack Weisenburger"
+date: "2025-12-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1) Read in the data and determine which variables are quantitative and which are factors. If necessary, change the variables STATUS, DISTRICT, and SUBCONT to factors. Use the random seed 1234, and a 70/30 training validation split. Split the data into a training set and a validation set. Print the head of the training set and the validation set.
+```{r}
+library(readr)
+flag <- read_csv("../dataset/FLAG2 copy.csv")
+```
+```{r}
+# encoding qualitative variables as factor
+flag$STATUS <- factor(flag$STATUS)
+flag$DISTRICT <- factor(flag$DISTRICT)
+flag$SUBCONT <- factor(flag$SUBCONT)
+
+# unique levels in each categorical variable
+levels(flag$STATUS)
+levels(flag$DISTRICT)
+levels(flag$SUBCONT)
+```
+
+```{r}
+set.seed(1234)
+n <- nrow(flag)
+
+trainIndex <- sample(1:n, size = round(0.7*n), replace=FALSE)
+
+# split data into training and validation
+flag.train <- flag[trainIndex,]
+flag.valid <- flag[-trainIndex,]
+
+head(flag.train)
+head(flag.valid)
+```
+
+2) Use Stepwise in both directions to find a model for predicting the price (LOWBID) of a contract. Use all variables as predictors except DOTEST and SUBCONT. Consider interaction terms if they are appropriate. State the final model (use AIC as a selection criterion and make sure to set trace=0 before submitting your report).
+
+```{r}
+null <- lm(LOWBID~1, data=flag.train)
+summary(null)
+
+full <- lm(LOWBID~STATUS + PCTSTRUC + DISTRICT + DAYSEST + NUMBIDS + LBERATIO + RDLNGTH + PCTASPH + PCTBASE + PCTEXCAV + PCTMOBIL + PCTTRAFF + STATUS:DAYSEST + PCTSTRUC:STATUS + PCTSTRUC:DAYSEST + NUMBIDS:STATUS + NUMBIDS:PCTSTRUC + NUMBIDS:DAYSEST + LBERATIO:DAYSEST + LBERATIO:STATUS + LBERATIO:PCTSTRUC + LBERATIO:NUMBIDS, data=flag.train)
+summary(full)
+```
+
+```{r}
+# stepwise function with both directions
+step.reg.both <- step(null,
+                 scope=list(lower=null, upper=full),
+                 direction="both",
+                 trace=0,
+                 k=2)
+
+summary(step.reg.both)
+```
+
+3) Use Backward Selection to find a model for predicting the price (LOWBID) of a contract. Use all variables as predictors except DOTEST and SUBCONT. Consider interaction terms if they are appropriate. State the final model (use AIC as a selection criterion and make sure to set trace=0 before submitting your report).
+```{r}
+# stepwise function with backward direction
+step.reg.backward <- step(full,
+                 scope=list(lower=null, upper=full),
+                 direction="backward",
+                 trace=0,
+                 k=2)
+
+summary(step.reg.backward)
+```
+
+4) Compare the in-sample adequacy of the models using the r2, r2 adj , residual plots and tests of partial significance for the regression coefficients for each model you have selected (hint: use training data to measure the in-sample adequacy).
+```{r}
+summary(step.reg.both)
+summary(step.reg.backward)
+```
+Model 2 (backward) has a slightly higher R² (0.7791 vs 0.773) and a slightly higher adjusted R² (0.7645 vs 0.7607) than Model 1 (both). After penalizing for the number of predictors, Model 2 fits the training data slightly better.
+
+```{r}
+both.resid <- resid(step.reg.both)
+round(mean(both.resid), 10)
+plot(step.reg.both$fitted.values, 
+     both.resid, 
+     xlab="Fitted Values", 
+     ylab="Residuals",
+     main="Residuals vs. Fitted Values (Model 1)")
+abline(0,0)
+
+backwards.resid <- resid(step.reg.backward) 
+round(mean(backwards.resid), 10) 
+plot(step.reg.backward$fitted.values, 
+     backwards.resid, 
+     xlab="Fitted Values", 
+     ylab="Residuals",
+     main="Residuals vs. Fitted Values (Model 2)")
+abline(0,0)
+```
+
+#Test of partial significance
+At Model 1 has 7 significant predictors and Model 2 has 6 significant predictors. Model 1 shows slightly stronger evidence of meaningful predictors, but both models rely heavily on the interaction between project duration and number of bidders (DAYSEST:NUMBIDS).
+
+5) Compare the out-of-sample validity of the models using the r2 validation and ASE validation measures for each model you have selected (hint: use validation data to measure the out-of-sample validity).
+```{r}
+SSTvalid <- sum((flag.valid$LOWBID - mean(flag.valid$LOWBID))^2)
+SSTvalid
+```
+
+```{r}
+# Model 1 r2 and ASE validation
+yhat1 <- predict(step.reg.both, newdata = flag.valid)
+r2.valid.1 <- 1 - sum((flag.valid$LOWBID - yhat1)^2)/SSTvalid
+r2.valid.1
+
+m <- nrow(flag.valid)
+ASE.1 <- sum((flag.valid$LOWBID - yhat1)^2/m)
+ASE.1
+
+# Model 2 r2 and ASE validation
+yhat2 <- predict(step.reg.backward, newdata = flag.valid)
+r2.valid.2 <- 1 - sum((flag.valid$LOWBID - yhat2)^2)/SSTvalid
+r2.valid.2
+
+m <- nrow(flag.valid)
+ASE.2 <- sum((flag.valid$LOWBID - yhat2)^2/m)
+ASE.2
+``` 
+```{r}
+results <- data.frame(
+Model = c("Model 1 (both)", "Model 2 (backward)"),
+Validation_R2 = c(r2.valid.1, r2.valid.2),
+ASE = c(ASE.1, ASE.2)
+)
+
+results
+```
+
+
+6) Recommend a final model.
+Model 2 has a higher validation R² and a lower ASE compared to Model 1. This means Model 2 explains more variability in bids and produces more accurate predictions on the validation data. Therefore, Model 2 is the better overall model for prediction and interpretation.
