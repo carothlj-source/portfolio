@@ -2,9 +2,9 @@
 
 Personal portfolio website: https://carothlj-source.github.io/portfolio/
 
-## What I changed
+## Who am I
+Hello! I’m Lindsey, a Senior currently pursuing a BS in Business Analytics and Cyber Security Management at Miami University's Farmer School of Business. I am committed to combining my strong analytical skills with a passion for technology and cybersecurity to drive business solutions and innovations.
 
-- Rewrote the About section. Added post grad plans and job goals.
-- Fixed the Data Analysis project link.
-- Added contact section and information within.
-- Added courses (365, 414, 444) and their respective information
+I am eager to connect with professionals and peers.
+
+Feel free to reach out to me at Carothlj@miamioh.edu.
