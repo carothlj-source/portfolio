@@ -1,6 +1,6 @@
 ---
 title: "DAE 3"
-author: "Lindsey Carothers, Jack Weisenburger"
+author: "Lindsey Carothers"
 date: "2025-12-02"
 output: html_document
 ---
