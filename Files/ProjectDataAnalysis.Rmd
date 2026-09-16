@@ -1,146 +1,485 @@
 ---
-title: "Data Analysis Experiment"
+title: "Predicting Highway Construction Contract Costs"
 author: "Lindsey Carothers"
-date: "2025-12-02"
-output: 
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
   html_document:
     theme: simplex
+    toc: true
+    toc_float: true
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-1) Read in the data and determine which variables are quantitative and which are factors. If necessary, change the variables STATUS, DISTRICT, and SUBCONT to factors. Use the random seed 1234, and a 70/30 training validation split. Split the data into a training set and a validation set. Print the head of the training set and the validation set.
-```{r}
-library(readr)
-flag <- read_csv("../dataset/FLAG2 copy.csv")
-```
-
-```{r}
-# encoding qualitative variables as factor
-flag$STATUS <- factor(flag$STATUS)
-flag$DISTRICT <- factor(flag$DISTRICT)
-flag$SUBCONT <- factor(flag$SUBCONT)
-
-# unique levels in each categorical variable
-levels(flag$STATUS)
-levels(flag$DISTRICT)
-levels(flag$SUBCONT)
-```
-
-```{r}
-set.seed(1234)
-n <- nrow(flag)
-
-trainIndex <- sample(1:n, size = round(0.7*n), replace=FALSE)
-
-# split data into training and validation
-flag.train <- flag[trainIndex,]
-flag.valid <- flag[-trainIndex,]
-
-head(flag.train)
-head(flag.valid)
-```
-
-2) Use Stepwise in both directions to find a model for predicting the price (LOWBID) of a contract. Use all variables as predictors except DOTEST and SUBCONT. Consider interaction terms if they are appropriate. State the final model (use AIC as a selection criterion and make sure to set trace=0 before submitting your report).
-
-```{r}
-null <- lm(LOWBID~1, data=flag.train)
-summary(null)
-
-full <- lm(LOWBID~STATUS + PCTSTRUC + DISTRICT + DAYSEST + NUMBIDS + LBERATIO + RDLNGTH + PCTASPH + PCTBASE + PCTEXCAV + PCTMOBIL + PCTTRAFF + STATUS:DAYSEST + PCTSTRUC:STATUS + PCTSTRUC:DAYSEST + NUMBIDS:STATUS + NUMBIDS:PCTSTRUC + NUMBIDS:DAYSEST + LBERATIO:DAYSEST + LBERATIO:STATUS + LBERATIO:PCTSTRUC + LBERATIO:NUMBIDS, data=flag.train)
-summary(full)
-```
-
-```{r}
-# stepwise function with both directions
-step.reg.both <- step(null,
-                 scope=list(lower=null, upper=full),
-                 direction="both",
-                 trace=0,
-                 k=2)
-
-summary(step.reg.both)
-```
-
-3) Use Backward Selection to find a model for predicting the price (LOWBID) of a contract. Use all variables as predictors except DOTEST and SUBCONT. Consider interaction terms if they are appropriate. State the final model (use AIC as a selection criterion and make sure to set trace=0 before submitting your report).
-```{r}
-# stepwise function with backward direction
-step.reg.backward <- step(full,
-                 scope=list(lower=null, upper=full),
-                 direction="backward",
-                 trace=0,
-                 k=2)
-
-summary(step.reg.backward)
-```
-
-4) Compare the in-sample adequacy of the models using the r2, r2 adj , residual plots and tests of partial significance for the regression coefficients for each model you have selected (hint: use training data to measure the in-sample adequacy).
-```{r}
-summary(step.reg.both)
-summary(step.reg.backward)
-```
-Model 2 (backward) has a slightly higher R² (0.7791 vs 0.773) and a slightly higher adjusted R² (0.7645 vs 0.7607) than Model 1 (both). After penalizing for the number of predictors, Model 2 fits the training data slightly better.
-
-```{r}
-both.resid <- resid(step.reg.both)
-round(mean(both.resid), 10)
-plot(step.reg.both$fitted.values, 
-     both.resid, 
-     xlab="Fitted Values", 
-     ylab="Residuals",
-     main="Residuals vs. Fitted Values (Model 1)")
-abline(0,0)
-
-backwards.resid <- resid(step.reg.backward) 
-round(mean(backwards.resid), 10) 
-plot(step.reg.backward$fitted.values, 
-     backwards.resid, 
-     xlab="Fitted Values", 
-     ylab="Residuals",
-     main="Residuals vs. Fitted Values (Model 2)")
-abline(0,0)
-```
-
-#Test of partial significance
-At Model 1 has 7 significant predictors and Model 2 has 6 significant predictors. Model 1 shows slightly stronger evidence of meaningful predictors, but both models rely heavily on the interaction between project duration and number of bidders (DAYSEST:NUMBIDS).
-
-5) Compare the out-of-sample validity of the models using the r2 validation and ASE validation measures for each model you have selected (hint: use validation data to measure the out-of-sample validity).
-```{r}
-SSTvalid <- sum((flag.valid$LOWBID - mean(flag.valid$LOWBID))^2)
-SSTvalid
-```
-
-```{r}
-# Model 1 r2 and ASE validation
-yhat1 <- predict(step.reg.both, newdata = flag.valid)
-r2.valid.1 <- 1 - sum((flag.valid$LOWBID - yhat1)^2)/SSTvalid
-r2.valid.1
-
-m <- nrow(flag.valid)
-ASE.1 <- sum((flag.valid$LOWBID - yhat1)^2/m)
-ASE.1
-
-# Model 2 r2 and ASE validation
-yhat2 <- predict(step.reg.backward, newdata = flag.valid)
-r2.valid.2 <- 1 - sum((flag.valid$LOWBID - yhat2)^2)/SSTvalid
-r2.valid.2
-
-m <- nrow(flag.valid)
-ASE.2 <- sum((flag.valid$LOWBID - yhat2)^2/m)
-ASE.2
-``` 
-```{r}
-results <- data.frame(
-Model = c("Model 1 (both)", "Model 2 (backward)"),
-Validation_R2 = c(r2.valid.1, r2.valid.2),
-ASE = c(ASE.1, ASE.2)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
 )
 
-results
+library(tidyverse)
+library(scales)
 ```
 
+**Can historical project characteristics help predict the cost of a highway construction project, and what factors have the strongest relationship with cost?**
 
-6) Recommend a final model.
-Model 2 has a higher validation R² and a lower ASE compared to Model 1. This means Model 2 explains more variability in bids and produces more accurate predictions on the validation data. Therefore, Model 2 is the better overall model for prediction and interpretation.
+# Project Overview
+
+Accurately estimating construction costs helps transportation agencies plan budgets, allocate funding, and evaluate projects. In this project, I used public data from the Texas Department of Transportation (TxDOT) to explore what factors are related to highway construction costs and whether those factors can be used to predict costs for new projects.
+
+I focused on three main questions:
+
+1. What project characteristics are related to higher construction costs?
+2. How accurately can these characteristics predict project cost?
+3. How well does the model perform when it is tested on projects it has not seen before?
+
+# Data
+
+The data comes from the Texas Department of Transportation's public Project Information dataset.
+
+```{r}
+library(readr)
+
+# Read in the TxDOT project data
+txdot <- read_csv("txdot_projects.csv")
+
+# Check the number of rows and columns in the original data
+dim(txdot)
+```
+
+The original dataset contains `r nrow(txdot)` project records and `r ncol(txdot)` variables.
+
+## Selecting Relevant Variables
+
+The original dataset contains many variables, so I narrowed it down to information that could be useful for understanding or predicting project cost.
+
+```{r}
+# Keep the variables that are most relevant to the analysis
+# Rename them to make them easier to work with in R
+projects <- txdot |>
+  select(
+    project_id = `PROJECT ID`,
+    district = `DISTRICT/ DIVISION`,
+    county = COUNTY,
+    project_type = `PROJECT TYPE`,
+    project_class = `PROJECT CLASSIFICATION`,
+    type_of_work = `TYPE OF WORK`,
+    working_days = `MAXIMUM NUMBER OF WORKING DAYS`,
+    road_length = `PROPOSED MAINLANE LENGTH`,
+    project_cost = `PROJECT ESTIMATE / LOW BID`,
+    engineer_estimate = `SEALED ENGINEER'S ESTIMATE PROJECT`,
+    actual_let_date = `PROJECT ACTUAL LET DATE`
+  )
+```
+
+# Data Preparation
+
+Before starting the analysis, I cleaned the variables used in the project. Numeric variables were converted to numbers, categorical variables were converted to factors, and observations without the information needed for the model were removed.
+
+```{r}
+projects <- projects |>
+  mutate(
+    # Convert cost, duration, and road length variables to numeric
+    project_cost = as.numeric(project_cost),
+    engineer_estimate = as.numeric(engineer_estimate),
+    working_days = as.numeric(working_days),
+    road_length = as.numeric(road_length),
+
+    # Treat these variables as categories
+    district = factor(district),
+    project_type = factor(project_type),
+    project_class = factor(project_class)
+  ) |>
+  filter(
+    # Remove projects without usable cost or predictor information
+    !is.na(project_cost),
+    project_cost > 0,
+    !is.na(working_days),
+    working_days > 0,
+    !is.na(road_length),
+    !is.na(district),
+    !is.na(project_type)
+  )
+```
+
+```{r}
+# Check the size of the cleaned dataset
+dim(projects)
+
+# Get a quick summary of project costs
+summary(projects$project_cost)
+```
+
+After cleaning, the dataset contains `r nrow(projects)` projects that can be used in the analysis.
+
+# Exploratory Analysis
+
+Before building the model, I first looked at the data to better understand the range of project costs and how cost relates to different project characteristics.
+
+## Distribution of Project Costs
+
+```{r}
+# Look at how project costs are distributed
+ggplot(projects, aes(x = project_cost)) +
+  geom_histogram(bins = 30) +
+  scale_x_continuous(labels = dollar_format()) +
+  labs(
+    title = "Distribution of TxDOT Project Costs",
+    x = "Project Cost",
+    y = "Number of Projects"
+  ) +
+  theme_minimal()
+```
+
+There is a wide range of project costs, with a smaller number of very expensive projects creating a strong right skew. This is something I will account for when building the regression model.
+
+## Project Cost and Expected Duration
+
+```{r}
+# Compare project duration with project cost
+ggplot(projects, aes(x = working_days, y = project_cost)) +
+  geom_point(alpha = 0.5) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Project Cost vs. Expected Working Days",
+    x = "Maximum Working Days",
+    y = "Project Cost"
+  ) +
+  theme_minimal()
+```
+
+This plot helps show whether projects expected to take longer also tend to cost more.
+
+## Project Cost by Project Type
+
+```{r}
+# Compare the typical cost of different project types
+projects |>
+  group_by(project_type) |>
+  summarise(
+    projects = n(),
+    median_cost = median(project_cost, na.rm = TRUE),
+    mean_cost = mean(project_cost, na.rm = TRUE)
+  ) |>
+  arrange(desc(median_cost))
+```
+
+```{r}
+# Visualize the range of costs within each project type
+projects |>
+  filter(!is.na(project_type)) |>
+  ggplot(
+    aes(
+      x = reorder(project_type, project_cost, median),
+      y = project_cost
+    )
+  ) +
+  geom_boxplot() +
+  coord_flip() +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Construction Cost by Project Type",
+    x = "Project Type",
+    y = "Project Cost"
+  ) +
+  theme_minimal()
+```
+
+# Engineer Estimate Analysis
+
+I also wanted to see how the engineer's estimate compares with the project cost recorded in the dataset. For projects with an available engineer's estimate, I calculated both the dollar difference and percentage difference between the two values.
+
+```{r}
+estimate_projects <- projects |>
+  # Only use projects that have a usable engineer estimate
+  filter(
+    !is.na(engineer_estimate),
+    engineer_estimate > 0
+  ) |>
+  mutate(
+    # Calculate how far project cost is from the engineer estimate
+    estimate_difference = project_cost - engineer_estimate,
+
+    # Calculate the difference as a percentage of the engineer estimate
+    estimate_difference_pct =
+      (project_cost - engineer_estimate) / engineer_estimate
+  )
+```
+
+```{r}
+# Compare engineer estimates with recorded project costs
+ggplot(
+  estimate_projects,
+  aes(x = engineer_estimate, y = project_cost)
+) +
+  geom_point(alpha = 0.5) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  scale_x_continuous(labels = dollar_format()) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Engineer Estimates vs. Project Costs",
+    subtitle = "Points closer to the dashed line have more similar values",
+    x = "Engineer's Estimate",
+    y = "Project Cost"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Summarize the percentage difference between the two values
+summary(estimate_projects$estimate_difference_pct)
+```
+
+# Predictive Modeling
+
+Next, I built a regression model to see how well project characteristics could predict project cost.
+
+I randomly divided the data into a **70% training set** and a **30% validation set**. The training data is used to build the model, while the validation data gives me a way to test the model on projects it has not seen before.
+
+```{r}
+# Set a seed so the same random split can be reproduced
+set.seed(1234)
+
+# Randomly select 70% of the rows for training
+train_index <- sample(
+  1:nrow(projects),
+  size = round(0.70 * nrow(projects)),
+  replace = FALSE
+)
+
+# Create the training and validation datasets
+train <- projects[train_index, ]
+valid <- projects[-train_index, ]
+
+# Check how many observations are in each set
+nrow(train)
+nrow(valid)
+```
+
+## Baseline Regression Model
+
+The initial model includes project duration, roadway length, project type, and district.
+
+Since project costs are strongly right-skewed, I modeled the natural logarithm of project cost instead of using the raw dollar amounts. This reduces the influence of extremely expensive projects and makes the data more suitable for regression.
+
+```{r}
+# Build the initial regression model using the training data
+model_full <- lm(
+  log(project_cost) ~
+    working_days +
+    road_length +
+    project_type +
+    district,
+  data = train
+)
+
+# Review the model results
+summary(model_full)
+```
+
+# Model Selection
+
+I used backward selection with AIC to simplify the initial model. The process starts with all of the predictors and removes variables when doing so improves the balance between model fit and complexity.
+
+```{r}
+# Use backward selection to find a simpler final model
+model_final <- step(
+  model_full,
+  direction = "backward",
+  trace = 0
+)
+
+# Review the final model
+summary(model_final)
+```
+
+# Model Diagnostics
+
+Before evaluating predictions, I reviewed the regression diagnostic plots to look for possible problems with the model.
+
+```{r, fig.width=10, fig.height=8}
+# Set up the plotting window to show four plots
+par(mfrow = c(2, 2))
+
+# Display the standard regression diagnostic plots
+plot(model_final)
+
+# Return to the normal one-plot layout
+par(mfrow = c(1, 1))
+```
+
+These plots help check whether the model's errors behave reasonably and whether there are unusual observations or patterns that could affect the results.
+
+# Out-of-Sample Validation
+
+Now I can test the model using the 30% validation sample that was not used to build it.
+
+A few validation projects contain district categories that were not present in the training data. Since the model has never seen those categories, they are removed before making predictions.
+
+Because the model predicts the logarithm of project cost, I convert the predictions back into dollar values before measuring accuracy.
+
+```{r}
+# Keep validation projects with district categories seen during training
+valid_predict <- valid |>
+  filter(district %in% unique(train$district)) |>
+  droplevels()
+
+# Use the final model to predict log(project_cost)
+pred_log <- predict(
+  model_final,
+  newdata = valid_predict
+)
+
+# Convert the predictions from log values back into dollar values
+predicted_cost <- exp(pred_log)
+```
+
+## Validation R-Squared
+
+Validation R-squared measures how much of the variation in project costs the model explains for projects it did not see during training.
+
+```{r}
+# Calculate the total variation in actual validation project costs
+SST <- sum(
+  (valid_predict$project_cost -
+     mean(valid_predict$project_cost))^2
+)
+
+# Calculate the prediction error from the model
+SSE <- sum(
+  (valid_predict$project_cost - predicted_cost)^2
+)
+
+# Calculate validation R-squared
+validation_r2 <- 1 - SSE / SST
+
+validation_r2
+```
+
+## RMSE
+
+RMSE measures the typical size of the model's prediction errors and gives more weight to larger errors.
+
+```{r}
+# Calculate root mean squared error
+rmse <- sqrt(
+  mean(
+    (valid_predict$project_cost - predicted_cost)^2
+  )
+)
+
+rmse
+```
+
+## MAE
+
+MAE gives another view of prediction accuracy by calculating the average absolute difference between the actual and predicted project costs.
+
+```{r}
+# Calculate mean absolute error
+mae <- mean(
+  abs(
+    valid_predict$project_cost - predicted_cost
+  )
+)
+
+mae
+```
+
+```{r}
+# Put the main validation measures into one table
+performance <- data.frame(
+  Measure = c(
+    "Validation R-Squared",
+    "RMSE",
+    "MAE"
+  ),
+  Value = c(
+    validation_r2,
+    rmse,
+    mae
+  )
+)
+
+performance
+```
+
+# Actual vs. Predicted Costs
+
+A visual comparison of actual and predicted costs helps show where the model performs well and where its predictions are farther off.
+
+```{r}
+# Combine the actual and predicted costs into one data frame
+validation_results <- data.frame(
+  actual = valid_predict$project_cost,
+  predicted = predicted_cost
+)
+```
+
+```{r}
+# Plot actual project costs against the model's predictions
+ggplot(
+  validation_results,
+  aes(x = actual, y = predicted)
+) +
+  geom_point(alpha = 0.5) +
+
+  # The dashed line represents a perfect prediction
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed"
+  ) +
+  scale_x_continuous(labels = dollar_format()) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(
+    title = "Actual vs. Predicted Project Costs",
+    subtitle = "Predictions closer to the dashed line are more accurate",
+    x = "Actual Project Cost",
+    y = "Predicted Project Cost"
+  ) +
+  theme_minimal()
+```
+
+# Largest Prediction Errors
+
+Overall accuracy is useful, but I also wanted to see where the model struggled the most. Looking at the largest errors can help identify projects that may be unusual or harder to predict using the available characteristics.
+
+```{r}
+validation_results <- validation_results |>
+  mutate(
+    # Positive error means the actual cost was higher than predicted
+    error = actual - predicted,
+
+    # Measure the size of the error regardless of direction
+    absolute_error = abs(error),
+
+    # Express the error relative to the project's actual cost
+    percent_error = absolute_error / actual
+  )
+```
+
+```{r}
+# Display the 10 projects with the largest prediction errors
+validation_results |>
+  arrange(desc(absolute_error)) |>
+  head(10)
+```
+
+# Conclusions
+
+This project shows how historical transportation data can be used to better understand construction costs and create a benchmark for predicting future project costs.
+
+Rather than judging the model only by how well it fits the data used to build it, I tested it on a separate validation sample. This gives a better idea of how the model might perform when it encounters new projects.
+
+The analysis also helped show how characteristics such as project duration, roadway length, project type, and district relate to project cost. At the same time, the largest prediction errors show that some projects are much harder to estimate from these characteristics alone.
+
+This model is not meant to replace an engineer's estimate. Instead, it shows how historical data could provide another point of reference when estimating costs and identifying projects that do not follow typical patterns.
+
+# Data Source
+
+Texas Department of Transportation (TxDOT), Project Information Open Data.
